@@ -1,6 +1,8 @@
 defmodule BanchanWeb.UserConfirmationControllerTest do
   use BanchanWeb.ConnCase, async: true
 
+  use Bamboo.Test
+
   alias Banchan.Accounts
   alias Banchan.Repo
   import Banchan.AccountsFixtures
@@ -19,10 +21,14 @@ defmodule BanchanWeb.UserConfirmationControllerTest do
 
   describe "GET /users/confirm/:token" do
     test "confirms the given token once", %{conn: conn, user: user} do
-      token =
-        extract_user_token(fn url ->
-          Accounts.deliver_user_confirmation_instructions(user, url)
-        end)
+      {:ok, %Oban.Job{}} =
+        Accounts.deliver_user_confirmation_instructions(user, &extractable_user_token/1)
+
+      assert_delivered_email_matches(%{
+        html_body: html_body
+      })
+
+      token = extract_user_token(html_body)
 
       conn = get(conn, Routes.user_confirmation_path(conn, :confirm, token))
       assert redirected_to(conn) == "/"

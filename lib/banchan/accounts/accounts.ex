@@ -7,7 +7,7 @@ defmodule Banchan.Accounts do
 
   alias Ueberauth.Auth
 
-  alias Banchan.Accounts.{DisableHistory, User, UserNotifier, UserToken}
+  alias Banchan.Accounts.{DisableHistory, Notifications, User, UserFilter, UserToken}
   alias Banchan.Repo
   alias Banchan.Uploads
   alias Banchan.Workers.{EnableUser, Thumbnailer}
@@ -17,9 +17,18 @@ defmodule Banchan.Accounts do
   @pubsub Banchan.PubSub
   @rand_pass_length 32
 
-  ## Database getters
+  ## Fetching data
 
-  def list_users(%User{} = actor, filter, opts \\ []) do
+  @doc """
+  General paginated User-listing query.
+
+  ## Options
+
+    * `:page_size` - The number of users to return per page.
+    * `:page` - The page number to return.
+
+  """
+  def list_users(%User{} = actor, %UserFilter{} = filter, opts \\ []) do
     from(u in User,
       as: :user,
       join: a in User,
@@ -45,6 +54,136 @@ defmodule Banchan.Accounts do
     else
       q
     end
+  end
+
+  @doc """
+  Gets a single user.
+
+  Raises `Ecto.NoResultsError` if the User does not exist.
+
+  ## Examples
+      iex> get_user!(123)
+      %User{}
+      iex> get_user!(456)
+      ** (Ecto.NoResultsError)
+  """
+  def get_user!(id), do: Repo.get!(User, id) |> Repo.preload(:disable_info)
+
+  @doc """
+  Gets a user by email.
+
+  ## Examples
+
+      iex> get_user_by_email("foo@example.com")
+      %User{}
+
+      iex> get_user_by_email("unknown@example.com")
+      nil
+
+  """
+  def get_user_by_email(email) when is_binary(email) do
+    Repo.one(
+      from u in User,
+        where: u.email == ^email,
+        preload: [:pfp_img, :pfp_thumb, :header_img, :disable_info]
+    )
+  end
+
+  @doc """
+  Gets a user by handle.
+
+  ## Examples
+
+      iex> get_user_by_email("foo")
+      %User{}
+
+      iex> get_user_by_email("unknown")
+      nil
+
+  """
+  def get_user_by_handle!(handle) when is_binary(handle) do
+    Repo.one!(
+      from u in User,
+        where: u.handle == ^handle,
+        preload: [:pfp_img, :pfp_thumb, :header_img, :disable_info]
+    )
+  end
+
+  @doc """
+  Gets a user by identifier (email or handle) and password.
+
+  ## Examples
+
+      iex> get_user_by_identifier_and_password("foo@example.com", "correct_password")
+      %User{}
+
+      iex> get_user_by_identifier_and_password("foo@example.com", "invalid_password")
+      nil
+
+  """
+  def get_user_by_identifier_and_password(ident, password)
+      when is_binary(ident) and is_binary(password) do
+    user =
+      Repo.one(
+        from u in User,
+          where: u.email == ^ident or u.handle == ^ident,
+          preload: [:pfp_img, :pfp_thumb, :header_img, :disable_info]
+      )
+
+    if User.valid_password?(user, password), do: user
+  end
+
+  ## User registration
+
+  @doc """
+  Registers a user.
+
+  ## Examples
+
+      iex> register_user(%{field: value})
+      {:ok, %User{}}
+
+      iex> register_user(%{field: bad_value})
+      {:error, %Ecto.Changeset{}}
+
+  """
+  def register_user(attrs) do
+    %User{}
+    |> User.registration_changeset(attrs)
+    |> Repo.insert()
+  end
+
+  @doc """
+  The same as above, but used for testing purposes only!
+
+  This is used so that MFA settings and confirmed_at can be set instantly.
+  """
+  def register_user_test(attrs) do
+    %User{}
+    |> User.registration_test_changeset(attrs)
+    |> Repo.insert()
+  end
+
+  @doc """
+  Register an admin.
+  """
+  def register_admin(attrs) do
+    %User{}
+    |> User.admin_registration_changeset(attrs)
+    |> Repo.insert()
+  end
+
+  @doc """
+  Returns an `%Ecto.Changeset{}` for tracking user changes.
+
+  ## Examples
+
+      iex> change_user_registration(user)
+      %Ecto.Changeset{data: %User{}}
+
+  """
+  def change_user_registration(%User{} = user, attrs \\ %{}) do
+    User.registration_changeset(user, attrs, hash_password: false)
   end
 
   @doc """
@@ -176,7 +315,7 @@ defmodule Banchan.Accounts do
     end
   end
 
-  def create_user_from_google(%Auth{} = auth) do
+  defp create_user_from_google(%Auth{} = auth) do
     pw = random_password()
     now = NaiveDateTime.utc_now() |> NaiveDateTime.truncate(:second)
 
@@ -243,204 +382,11 @@ defmodule Banchan.Accounts do
     :crypto.strong_rand_bytes(@rand_pass_length) |> Base.encode64()
   end
 
-  @doc """
-  Gets a single user.
-  Raises `Ecto.NoResultsError` if the User does not exist.
-  ## Examples
-      iex> get_user!(123)
-      %User{}
-      iex> get_user!(456)
-      ** (Ecto.NoResultsError)
-  """
-  def get_user!(id), do: Repo.get!(User, id) |> Repo.preload(:disable_info)
+  ## Admin
 
   @doc """
-  Gets a user by email.
-
-  ## Examples
-
-      iex> get_user_by_email("foo@example.com")
-      %User{}
-
-      iex> get_user_by_email("unknown@example.com")
-      nil
-
+  Disables a user.
   """
-  def get_user_by_email(email) when is_binary(email) do
-    Repo.one(
-      from u in User,
-        where: u.email == ^email,
-        preload: [:pfp_img, :pfp_thumb, :header_img, :disable_info]
-    )
-  end
-
-  @doc """
-  Gets a user by handle.
-
-  ## Examples
-
-      iex> get_user_by_email("foo")
-      %User{}
-
-      iex> get_user_by_email("unknown")
-      nil
-
-  """
-  def get_user_by_handle!(handle) when is_binary(handle) do
-    Repo.one!(
-      from u in User,
-        where: u.handle == ^handle,
-        preload: [:pfp_img, :pfp_thumb, :header_img, :disable_info]
-    )
-  end
-
-  @doc """
-  Gets a user by identifier (email or handle) and password.
-
-  ## Examples
-
-      iex> get_user_by_identifier_and_password("foo@example.com", "correct_password")
-      %User{}
-
-      iex> get_user_by_identifier_and_password("foo@example.com", "invalid_password")
-      nil
-
-  """
-  def get_user_by_identifier_and_password(ident, password)
-      when is_binary(ident) and is_binary(password) do
-    user =
-      Repo.one(
-        from u in User,
-          where: u.email == ^ident or u.handle == ^ident,
-          preload: [:pfp_img, :pfp_thumb, :header_img, :disable_info]
-      )
-
-    if User.valid_password?(user, password), do: user
-  end
-
-  ## User registration
-
-  @doc """
-  Registers a user.
-
-  ## Examples
-
-      iex> register_user(%{field: value})
-      {:ok, %User{}}
-
-      iex> register_user(%{field: bad_value})
-      {:error, %Ecto.Changeset{}}
-
-  """
-  def register_user(attrs) do
-    %User{}
-    |> User.registration_changeset(attrs)
-    |> Repo.insert()
-  end
-
-  @doc """
-  The same as above, but used for testing purposes only!
-
-  This is used so that MFA settings and confirmed_at can be set instantly.
-  """
-  def register_user_test(attrs) do
-    %User{}
-    |> User.registration_test_changeset(attrs)
-    |> Repo.insert()
-  end
-
-  @doc """
-  Register an admin.
-  """
-  def register_admin(attrs) do
-    %User{}
-    |> User.admin_registration_changeset(attrs)
-    |> Repo.insert()
-  end
-
-  @doc """
-  Returns an `%Ecto.Changeset{}` for tracking user changes.
-
-  ## Examples
-
-      iex> change_user_registration(user)
-      %Ecto.Changeset{data: %User{}}
-
-  """
-  def change_user_registration(%User{} = user, attrs \\ %{}) do
-    User.registration_changeset(user, attrs, hash_password: false)
-  end
-
-  ## Settings
-
-  @doc """
-  Returns an `%Ecto.Changeset{}` for changing the user handle.
-
-  ## Examples
-
-      iex> change_user_handle(user)
-      %Ecto.Changeset{data: %User{}}
-
-  """
-  def change_user_handle(user, attrs \\ %{}) do
-    User.handle_changeset(user, attrs)
-  end
-
-  @doc """
-  Updates admin-level fields for a user, such as their roles.
-  """
-  def update_admin_fields(%User{} = actor, %User{} = user, attrs \\ %{}) do
-    User.admin_changeset(actor, user, attrs)
-    |> Repo.update()
-  end
-
-  @doc """
-  Updates the user profile fields.
-
-  ## Examples
-
-      iex> update_user_profile(actor, user, %{handle: ..., bio: ..., ...})
-      {:ok, %User{}}
-
-  """
-  def update_user_profile(%User{} = actor, %User{} = user, attrs) do
-    if can_modify_user?(actor, user) do
-      user
-      |> User.profile_changeset(attrs)
-      |> Repo.update()
-    else
-      {:error, :unauthorized}
-    end
-  end
-
-  @doc """
-  Updates the user handle.
-
-  ## Examples
-
-      iex> update_user_handle(user, "valid password", %{handle: ...})
-      {:ok, %User{}}
-
-      iex> update_user_handle(user, "invalid password", %{handle: ...})
-      {:error, %Ecto.Changeset{}}
-
-  """
-  def update_user_handle(user, password, attrs) do
-    changeset =
-      user
-      |> User.handle_changeset(attrs)
-      |> User.validate_current_password(password)
-
-    Ecto.Multi.new()
-    |> Ecto.Multi.update(:user, changeset)
-    |> Ecto.Multi.delete_all(:tokens, UserToken.user_and_contexts_query(user, :all))
-    |> Repo.transaction()
-    |> case do
-      {:ok, %{user: user}} -> {:ok, user}
-      {:error, :user, changeset, _} -> {:error, changeset}
-    end
-  end
-
   def disable_user(%User{} = actor, %User{} = user, attrs) do
     if :admin in actor.roles ||
          (:mod in actor.roles && :admin not in user.roles) do
@@ -511,6 +457,133 @@ defmodule Banchan.Accounts do
       end
     else
       {:error, :unauthorized}
+    end
+  end
+
+  @doc """
+  Utility for determining whether an actor can modify a target user. Used for
+  allowing admins to modify user-only stuff.
+  """
+  def can_modify_user?(%User{} = actor, %User{} = target) do
+    actor.id == target.id ||
+      :admin in actor.roles ||
+      (:mod in actor.roles && :admin not in target.roles)
+  end
+
+  ## Settings and Profile
+
+  @doc """
+  Returns an `%Ecto.Changeset{}` for changing the user handle.
+
+  ## Examples
+
+      iex> change_user_handle(user)
+      %Ecto.Changeset{data: %User{}}
+
+  """
+  def change_user_handle(user, attrs \\ %{}) do
+    User.handle_changeset(user, attrs)
+  end
+
+  @doc """
+  Updates admin-level fields for a user, such as their roles.
+  """
+  def update_admin_fields(%User{} = actor, %User{} = user, attrs \\ %{}) do
+    User.admin_changeset(actor, user, attrs)
+    |> Repo.update()
+  end
+
+  @doc """
+  Updates the user profile fields.
+
+  ## Examples
+
+      iex> update_user_profile(actor, user, %{handle: ..., bio: ..., ...})
+      {:ok, %User{}}
+
+  """
+  def update_user_profile(%User{} = actor, %User{} = user, attrs) do
+    if can_modify_user?(actor, user) do
+      user
+      |> User.profile_changeset(attrs)
+      |> Repo.update()
+    else
+      {:error, :unauthorized}
+    end
+  end
+
+  @doc """
+  Saves a profile picture and schedules generation of corresponding thumbnails.
+  """
+  def make_pfp_images!(%User{} = actor, %User{} = user, src, type, name) do
+    if can_modify_user?(actor, user) do
+      upload = Uploads.save_file!(user, src, type, name)
+
+      {:ok, pfp} =
+        Thumbnailer.thumbnail(
+          upload,
+          dimensions: "512x512",
+          name: "profile.jpg"
+        )
+
+      {:ok, thumb} =
+        Thumbnailer.thumbnail(
+          upload,
+          dimensions: "128x128",
+          name: "thumbnail.jpg"
+        )
+
+      {pfp, thumb}
+    else
+      raise "Unauthorized"
+    end
+  end
+
+  @doc """
+  Saves a header image and schedules generation of processed version for site display.
+  """
+  def make_header_image!(%User{} = actor, %User{} = user, src, type, name) do
+    if can_modify_user?(actor, user) do
+      upload = Uploads.save_file!(user, src, type, name)
+
+      {:ok, header} =
+        Thumbnailer.thumbnail(
+          upload,
+          dimensions: "1200",
+          name: "header.jpg"
+        )
+
+      header
+    else
+      raise "Unauthorized"
+    end
+  end
+
+  @doc """
+  Updates the user handle.
+
+  ## Examples
+
+      iex> update_user_handle(user, "valid password", %{handle: ...})
+      {:ok, %User{}}
+
+      iex> update_user_handle(user, "invalid password", %{handle: ...})
+      {:error, %Ecto.Changeset{}}
+
+  """
+  def update_user_handle(user, password, attrs) do
+    changeset =
+      user
+      |> User.handle_changeset(attrs)
+      |> User.validate_current_password(password)
+
+    Ecto.Multi.new()
+    |> Ecto.Multi.update(:user, changeset)
+    |> Ecto.Multi.delete_all(:tokens, UserToken.user_and_contexts_query(user, :all))
+    |> Repo.transaction()
+    |> case do
+      {:ok, %{user: user}} -> {:ok, user}
+      {:error, :user, changeset, _} -> {:error, changeset}
     end
   end
 
@@ -603,7 +676,7 @@ defmodule Banchan.Accounts do
     {encoded_token, user_token} = UserToken.build_email_token(user, "change:#{current_email}")
 
     Repo.insert!(user_token)
-    UserNotifier.deliver_update_email_instructions(user, update_email_url_fun.(encoded_token))
+    Notifications.update_email_instructions(user, update_email_url_fun.(encoded_token))
   end
 
   @doc """
@@ -731,12 +804,18 @@ defmodule Banchan.Accounts do
     end
   end
 
+  @doc """
+  Updates the user's preferences for mature content filtering.
+  """
   def update_maturity(user, attrs) do
     user
     |> User.maturity_changeset(attrs)
     |> Repo.update()
   end
 
+  @doc """
+  Updates the user's preferences for muted words.
+  """
   def update_muted(user, attrs) do
     user
     |> User.muted_changeset(attrs)
@@ -770,6 +849,35 @@ defmodule Banchan.Accounts do
     :ok
   end
 
+  @doc """
+  Logs out a user from everything.
+  """
+  def logout_user(%User{} = user) do
+    # Delete all user tokens
+    Repo.delete_all(UserToken.user_and_contexts_query(user, :all))
+
+    # Broadcast to all LiveViews to immediately disconnect the user
+    Phoenix.PubSub.broadcast_from(
+      @pubsub,
+      self(),
+      UserAuth.pubsub_topic(),
+      %Phoenix.Socket.Broadcast{
+        topic: UserAuth.pubsub_topic(),
+        event: "logout_user",
+        payload: %{
+          user: user
+        }
+      }
+    )
+  end
+
+  @doc """
+  Subscribes the current process to auth-related events (such as `logout_user`).
+  """
+  def subscribe_to_auth_events do
+    Phoenix.PubSub.subscribe(@pubsub, UserAuth.pubsub_topic())
+  end
+
   ## Confirmation
 
   @doc """
@@ -791,7 +899,7 @@ defmodule Banchan.Accounts do
     else
       {encoded_token, user_token} = UserToken.build_email_token(user, "confirm")
       Repo.insert!(user_token)
-      UserNotifier.deliver_confirmation_instructions(user, confirmation_url_fun.(encoded_token))
+      Notifications.confirmation_instructions(user, confirmation_url_fun.(encoded_token))
     end
   end
 
@@ -832,7 +940,7 @@ defmodule Banchan.Accounts do
       when is_function(reset_password_url_fun, 1) do
     {encoded_token, user_token} = UserToken.build_email_token(user, "reset_password")
     Repo.insert!(user_token)
-    UserNotifier.deliver_reset_password_instructions(user, reset_password_url_fun.(encoded_token))
+    Notifications.reset_password_instructions(user, reset_password_url_fun.(encoded_token))
   end
 
   @doc """
@@ -877,75 +985,5 @@ defmodule Banchan.Accounts do
       {:ok, %{user: user}} -> {:ok, user}
       {:error, :user, changeset, _} -> {:error, changeset}
     end
-  end
-
-  def logout_user(%User{} = user) do
-    # Delete all user tokens
-    Repo.delete_all(UserToken.user_and_contexts_query(user, :all))
-
-    # Broadcast to all LiveViews to immediately disconnect the user
-    Phoenix.PubSub.broadcast_from(
-      @pubsub,
-      self(),
-      UserAuth.pubsub_topic(),
-      %Phoenix.Socket.Broadcast{
-        topic: UserAuth.pubsub_topic(),
-        event: "logout_user",
-        payload: %{
-          user: user
-        }
-      }
-    )
-  end
-
-  def subscribe_to_auth_events do
-    Phoenix.PubSub.subscribe(@pubsub, UserAuth.pubsub_topic())
-  end
-
-  def make_pfp_images!(%User{} = actor, %User{} = user, src, type, name) do
-    if can_modify_user?(actor, user) do
-      upload = Uploads.save_file!(user, src, type, name)
-
-      {:ok, pfp} =
-        Thumbnailer.thumbnail(
-          upload,
-          dimensions: "512x512",
-          name: "profile.jpg"
-        )
-
-      {:ok, thumb} =
-        Thumbnailer.thumbnail(
-          upload,
-          dimensions: "128x128",
-          name: "thumbnail.jpg"
-        )
-
-      {pfp, thumb}
-    else
-      raise "Unauthorized"
-    end
-  end
-
-  def make_header_image!(%User{} = actor, %User{} = user, src, type, name) do
-    if can_modify_user?(actor, user) do
-      upload = Uploads.save_file!(user, src, type, name)
-
-      {:ok, header} =
-        Thumbnailer.thumbnail(
-          upload,
-          dimensions: "1200",
-          name: "header.jpg"
-        )
-
-      header
-    else
-      raise "Unauthorized"
-    end
-  end
-
-  def can_modify_user?(%User{} = actor, %User{} = target) do
-    actor.id == target.id ||
-      :admin in actor.roles ||
-      :mod in actor.roles
   end
 end

@@ -301,6 +301,9 @@ defmodule Banchan.Commissions do
           maybe_close_offering(offering, available_proposal_count)
 
           cond do
+            !is_nil(offering.archived_at) ->
+              {:error, :offering_archived}
+
             !offering.open ->
               {:error, :offering_closed}
 
@@ -1080,7 +1083,9 @@ defmodule Banchan.Commissions do
           }
         )
 
-        Notifications.send_receipt(invoice, client, commission)
+        if client.email do
+          Notifications.send_receipt(invoice, client, commission)
+        end
 
         send_event_update!(invoice.event_id)
       end)

@@ -345,20 +345,21 @@ defmodule Banchan.Commissions.Notifications do
     "A refund requires further action."
   end
 
+  @doc """
+  Emails an invoice receipt.
+  """
   def send_receipt(%Invoice{} = invoice, %User{} = client, %Commission{} = commission) do
-    if client.email do
-      Mailer.deliver(
-        to: client.email,
-        subject: "Banchan Art Receipt for #{commission.title}",
-        html_body:
-          Phoenix.View.render_to_string(BanchanWeb.PaymentReceiptView, "receipt.html", %{
-            invoice: invoice |> Repo.preload([:event]),
-            commission: commission |> Repo.preload([:line_items]),
-            deposited: Commissions.deposited_amount(client, commission, true),
-            tipped: Commissions.tipped_amount(client, commission, true)
-          })
-      )
-    end
+    Mailer.new_email(
+      client.email,
+      "Banchan Art Receipt for #{commission.title}",
+      BanchanWeb.Email.CommissionsView,
+      :receipt,
+      invoice: invoice |> Repo.preload([:event]),
+      commission: commission |> Repo.preload([:line_items]),
+      deposited: Commissions.deposited_amount(client, commission, true),
+      tipped: Commissions.tipped_amount(client, commission, true)
+    )
+    |> Mailer.deliver()
   end
 
   defp replace_fragment(uri, event) do

@@ -26,10 +26,9 @@ defmodule BanchanWeb.OfferingLive.Show do
 
     offering =
       Offerings.get_offering_by_type!(
+        socket.assigns.current_user,
         socket.assigns.studio,
-        offering_type,
-        socket.assigns.current_user_member?,
-        socket.assigns.current_user
+        offering_type
       )
 
     Notifications.subscribe_to_offering_updates(offering)
@@ -56,6 +55,7 @@ defmodule BanchanWeb.OfferingLive.Show do
     related =
       Offerings.list_offerings(
         related_to: offering,
+        current_user: socket.assigns.current_user,
         order_by: :featured,
         page_size: 6
       )
@@ -93,10 +93,9 @@ defmodule BanchanWeb.OfferingLive.Show do
   def handle_info(%{event: "images_updated"}, socket) do
     offering =
       Offerings.get_offering_by_type!(
+        socket.assigns.current_user,
         socket.assigns.studio,
-        socket.assigns.offering.type,
-        socket.assigns.current_user_member?,
-        socket.assigns.current_user
+        socket.assigns.offering.type
       )
 
     gallery_images =

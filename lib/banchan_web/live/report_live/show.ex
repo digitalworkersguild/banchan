@@ -66,6 +66,18 @@ defmodule BanchanWeb.ReportLive.Show do
            changeset: Report.update_changeset(report, %{})
          )}
 
+      {:error, :not_an_admin} ->
+        {:noreply,
+         socket
+         |> put_flash(:error, "You are not authorized to perform this action.")
+         |> push_redirect(to: Routes.home_path(Endpoint, :index))}
+
+      {:error, :unauthorized} ->
+        {:noreply,
+         socket
+         |> put_flash(:error, "You are not authorized to perform this action.")
+         |> push_redirect(to: Routes.home_path(Endpoint, :index))}
+
       {:error, %Ecto.Changeset{} = changeset} ->
         {:noreply, socket |> assign(changeset: changeset)}
     end
@@ -81,6 +93,12 @@ defmodule BanchanWeb.ReportLive.Show do
            report: report,
            changeset: Report.update_changeset(report, %{})
          )}
+
+      {:error, :unauthorized} ->
+        {:noreply,
+         socket
+         |> put_flash(:error, "You are not authorized to perform this action.")
+         |> push_redirect(to: Routes.home_path(Endpoint, :index))}
 
       {:error, %Ecto.Changeset{} = changeset} ->
         {:noreply, socket |> assign(changeset: changeset)}

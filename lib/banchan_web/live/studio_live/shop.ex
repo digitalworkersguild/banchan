@@ -79,6 +79,7 @@ defmodule BanchanWeb.StudioLive.Shop do
   def handle_event("unarchive", %{"type" => type}, socket) do
     {:ok, _} =
       Offerings.unarchive_offering(
+        socket.assigns.current_user,
         Enum.find(socket.assigns.offerings, &(&1.type == type)),
         socket.assigns.current_user_member?
       )
@@ -92,6 +93,7 @@ defmodule BanchanWeb.StudioLive.Shop do
   def handle_event("drop_card", %{"type" => type, "new_index" => new_index}, socket) do
     {:ok, _} =
       Offerings.move_offering(
+        socket.assigns.current_user,
         Enum.find(socket.assigns.offerings, &(&1.type == type)),
         new_index,
         socket.assigns.current_user_member?
@@ -107,9 +109,8 @@ defmodule BanchanWeb.StudioLive.Shop do
       studio: socket.assigns.studio,
       include_archived?: socket.assigns.current_user_member?,
       current_user: socket.assigns.current_user,
-      current_user_member?: socket.assigns.current_user_member?,
       order_by: :index,
-      show_closed: true,
+      include_closed?: true,
       page_size: 16,
       page: page
     )

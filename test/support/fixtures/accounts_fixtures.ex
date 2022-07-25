@@ -44,9 +44,12 @@ defmodule Banchan.AccountsFixtures do
     user
   end
 
-  def extract_user_token(fun) do
-    {:ok, captured} = fun.(&"[TOKEN]#{&1}[TOKEN]")
-    [_, token, _] = String.split(captured.body, "[TOKEN]")
+  def extractable_user_token(token) do
+    "[TOKEN]#{token}[TOKEN]"
+  end
+
+  def extract_user_token(text) do
+    [_, token, _ | _] = String.split(text, "[TOKEN]")
     token
   end
 end

@@ -24,10 +24,9 @@ defmodule BanchanWeb.OfferingLive.Request do
 
     offering =
       Offerings.get_offering_by_type!(
+        socket.assigns.current_user,
         socket.assigns.studio,
-        offering_type,
-        socket.assigns.current_user_member?,
-        socket.assigns.current_user
+        offering_type
       )
 
     terms = offering.terms || socket.assigns.studio.default_terms || ""

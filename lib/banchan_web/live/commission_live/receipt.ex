@@ -27,7 +27,7 @@ defmodule BanchanWeb.CommissionLive.Receipt do
   def render(assigns) do
     ~F"""
     <div class="prose">
-      {raw(Phoenix.View.render_to_string(BanchanWeb.PaymentReceiptView, "receipt.html", assigns))}
+      {raw(Phoenix.View.render_to_string(BanchanWeb.Email.CommissionsView, "receipt.html", assigns))}
     </div>
     """
   end

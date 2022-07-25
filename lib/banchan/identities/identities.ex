@@ -6,6 +6,10 @@ defmodule Banchan.Identities do
   alias Banchan.Repo
   alias Banchan.Studios.Studio
 
+  @doc """
+  Returns the entity identified by `handle`, if any. This can be either a User
+  or a Studio, and they share a namespace.
+  """
   def get_user_or_studio_by_handle(handle) do
     cond do
       user = Repo.get_by(User, handle: handle) -> {:ok, user}
@@ -14,6 +18,9 @@ defmodule Banchan.Identities do
     end
   end
 
+  @doc """
+  Checks that no User or Studio with the given handle currently exists.
+  """
   def validate_uniqueness_of_handle(handle) do
     msg = not_found_message(handle)
 

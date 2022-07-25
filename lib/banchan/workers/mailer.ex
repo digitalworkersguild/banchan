@@ -41,12 +41,21 @@ defmodule Banchan.Workers.Mailer do
     end
   end
 
-  def deliver(opts) do
+  def new_email(recipient, subject, view, template, assigns \\ []) do
+    Bamboo.Email.new_email(
+      to: recipient,
+      subject: subject
+    )
+    |> Bamboo.Phoenix.put_html_layout({BanchanWeb.LayoutView, "email.html"})
+    |> then(&Bamboo.Phoenix.render_email(view, &1, template, assigns))
+  end
+
+  def deliver(email) do
     %{
-      to: Keyword.fetch!(opts, :to),
-      subject: Keyword.fetch!(opts, :subject),
-      html_body: Keyword.fetch!(opts, :html_body),
-      text_body: Keyword.get(opts, :text_body)
+      to: email.to,
+      subject: email.subject,
+      html_body: email.html_body,
+      text_body: email.text_body
     }
     |> __MODULE__.new()
     |> Oban.insert()

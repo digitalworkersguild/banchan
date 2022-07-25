@@ -1,6 +1,8 @@
 defmodule BanchanWeb.ResetPasswordLiveTest do
   use BanchanWeb.ConnCase
 
+  use Bamboo.Test
+
   import Phoenix.LiveViewTest
   import Banchan.AccountsFixtures
   alias Banchan.Accounts
@@ -8,10 +10,14 @@ defmodule BanchanWeb.ResetPasswordLiveTest do
   setup do
     user = user_fixture()
 
-    token =
-      extract_user_token(fn url ->
-        Accounts.deliver_user_reset_password_instructions(user, url)
-      end)
+    {:ok, %Oban.Job{}} =
+      Accounts.deliver_user_reset_password_instructions(user, &extractable_user_token/1)
+
+    assert_delivered_email_matches(%{
+      html_body: html_body
+    })
+
+    token = extract_user_token(html_body)
 
     %{user: user, token: token}
   end

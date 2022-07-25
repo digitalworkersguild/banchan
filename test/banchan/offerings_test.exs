@@ -120,8 +120,8 @@ defmodule Banchan.OfferingsTest do
         Offerings.list_offerings(
           studio: studio,
           current_user: client,
-          show_closed: true,
-          show_pending: true
+          include_closed?: true,
+          include_pending?: true
         ).entries
         |> List.first()
         |> Offerings.offering_available_slots()

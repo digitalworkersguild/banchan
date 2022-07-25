@@ -1,6 +1,19 @@
 defmodule BanchanWeb.LayoutView do
   use BanchanWeb, :view
 
+  def render("email.html", assigns) do
+    ~F"""
+    <!DOCTYPE html>
+    <html lang="en">
+      <head>
+      </head>
+      <body>
+        {@inner_content}
+      </body>
+    </html>
+    """
+  end
+
   def render(_, assigns) do
     ~F"""
     <!DOCTYPE html>

@@ -20,28 +20,12 @@ defmodule Banchan.Workers.Thumbnailer do
   @impl Oban.Worker
   def perform(%_{
         args: %{
-          "src" => src,
-          "dest" => dest,
+          "src" => src_id,
+          "dest" => dest_id,
           "opts" => opts
         }
       }) do
-    src = %Upload{
-      id: src["id"],
-      name: src["name"],
-      key: src["key"],
-      bucket: src["bucket"],
-      type: src["type"]
-    }
-
-    dest = %Upload{
-      id: dest["id"],
-      name: dest["name"],
-      key: dest["key"],
-      bucket: dest["bucket"],
-      type: dest["type"]
-    }
-
-    process(src, dest, opts)
+    process(%Upload{id: src_id}, %Upload{id: dest_id}, opts)
   end
 
   def thumbnail(upload)
@@ -69,20 +53,8 @@ defmodule Banchan.Workers.Thumbnailer do
                {:ok, _} <-
                  Oban.insert(
                    __MODULE__.new(%{
-                     src: %{
-                       id: upload.id,
-                       bucket: upload.bucket,
-                       key: upload.key,
-                       name: upload.name,
-                       type: upload.type
-                     },
-                     dest: %{
-                       id: pending.id,
-                       bucket: pending.bucket,
-                       key: pending.key,
-                       name: pending.name,
-                       type: pending.type
-                     },
+                     src: upload.id,
+                     dest: pending.id,
                      opts: %{
                        target_size: Keyword.get(opts, :target_size),
                        format: Keyword.get(opts, :format, "jpeg"),
@@ -100,110 +72,118 @@ defmodule Banchan.Workers.Thumbnailer do
   end
 
   defp process(src, dest, opts) do
-    tmp_src =
-      Path.join([
-        System.tmp_dir!(),
-        src.key <> "#{System.unique_integer()}" <> Path.extname(src.name)
-      ])
+    {:ok, ret} =
+      Repo.transaction(fn ->
+        src = Repo.reload(src)
+        dest = Repo.reload(dest)
 
-    File.mkdir_p!(Path.dirname(tmp_src))
-    Uploads.write_data!(src, tmp_src)
+        tmp_src =
+          Path.join([
+            System.tmp_dir!(),
+            src.key <> "#{System.unique_integer()}" <> Path.extname(src.name)
+          ])
 
-    if Uploads.video?(src) do
-      duration = FFprobe.duration(tmp_src)
+        File.mkdir_p!(Path.dirname(tmp_src))
+        Uploads.write_data!(src, tmp_src)
 
-      output_src = Path.join([System.tmp_dir!(), src.key <> ".jpeg"])
+        if Uploads.video?(src) do
+          duration = FFprobe.duration(tmp_src)
 
-      command =
-        FFmpex.new_command()
-        |> add_global_option(option_y())
-        |> add_input_file(tmp_src)
-        |> add_output_file(output_src)
-        |> add_file_option(option_f("image2"))
-        |> add_file_option(option_filter("scale=128:128"))
-        |> add_file_option(option_ss(round(duration / 2)))
-        |> add_file_option(option_vframes(1))
+          output_src = Path.join([System.tmp_dir!(), src.key <> ".jpeg"])
 
-      {:ok, _} = execute(command)
+          command =
+            FFmpex.new_command()
+            |> add_global_option(option_y())
+            |> add_input_file(tmp_src)
+            |> add_output_file(output_src)
+            |> add_file_option(option_f("image2"))
+            |> add_file_option(option_filter("scale=128:128"))
+            |> add_file_option(option_ss(round(duration / 2)))
+            |> add_file_option(option_vframes(1))
 
-      File.copy!(output_src, tmp_src)
-    end
+          {:ok, _} = execute(command)
 
-    tmp_dest =
-      Path.join([
-        System.tmp_dir!(),
-        dest.key <> "#{System.unique_integer()}" <> Path.extname(dest.name)
-      ])
+          File.copy!(output_src, tmp_src)
+        end
 
-    File.mkdir_p!(Path.dirname(tmp_dest))
+        tmp_dest =
+          Path.join([
+            System.tmp_dir!(),
+            dest.key <> "#{System.unique_integer()}" <> Path.extname(dest.name)
+          ])
 
-    # https://www.smashingmagazine.com/2015/06/efficient-image-resizing-with-imagemagick/
-    Mogrify.open(tmp_src)
-    |> Mogrify.custom("flatten")
-    |> Mogrify.format(opts["format"])
-    |> Mogrify.custom("filter", "Triangle")
-    |> Mogrify.custom("define", "filter:support=2")
-    |> Mogrify.custom("unsharp", "0.25x0.25+8+0.065")
-    |> Mogrify.custom("dither", "None")
-    |> Mogrify.custom("posterize", "136")
-    |> Mogrify.custom("quality", "82")
-    |> Mogrify.custom("define", "jpeg:fancy-upsampling=off")
-    |> Mogrify.custom("define", "png:compression-filter=5")
-    |> Mogrify.custom("define", "png:compression-level=9")
-    |> Mogrify.custom("define", "png:compression-strategy=1")
-    |> Mogrify.custom("define", "png:exclude-chunk=all")
-    |> Mogrify.custom("interlace", "none")
-    |> Mogrify.custom("colorspace", "sRGB")
-    |> Mogrify.custom("strip")
-    |> then(fn mog ->
-      if opts["target_size"] do
-        mog
-        |> Mogrify.custom("define", "#{opts["format"]}:extent=#{opts["target_size"]}")
-      else
-        mog
-      end
-    end)
-    |> then(fn mog ->
-      if opts["dimensions"] do
-        mog
-        |> Mogrify.gravity("Center")
-        |> Mogrify.custom("thumbnail", opts["dimensions"])
-        |> Mogrify.custom("extent", opts["dimensions"])
-      else
-        mog
-      end
-    end)
-    |> Mogrify.save(path: tmp_dest)
+        File.mkdir_p!(Path.dirname(tmp_dest))
 
-    Uploads.upload_file!(dest, tmp_dest)
+        # https://www.smashingmagazine.com/2015/06/efficient-image-resizing-with-imagemagick/
+        Mogrify.open(tmp_src)
+        |> Mogrify.custom("flatten")
+        |> Mogrify.format(opts["format"])
+        |> Mogrify.custom("filter", "Triangle")
+        |> Mogrify.custom("define", "filter:support=2")
+        |> Mogrify.custom("unsharp", "0.25x0.25+8+0.065")
+        |> Mogrify.custom("dither", "None")
+        |> Mogrify.custom("posterize", "136")
+        |> Mogrify.custom("quality", "82")
+        |> Mogrify.custom("define", "jpeg:fancy-upsampling=off")
+        |> Mogrify.custom("define", "png:compression-filter=5")
+        |> Mogrify.custom("define", "png:compression-level=9")
+        |> Mogrify.custom("define", "png:compression-strategy=1")
+        |> Mogrify.custom("define", "png:exclude-chunk=all")
+        |> Mogrify.custom("interlace", "none")
+        |> Mogrify.custom("colorspace", "sRGB")
+        |> Mogrify.custom("strip")
+        |> then(fn mog ->
+          if opts["target_size"] do
+            mog
+            |> Mogrify.custom("define", "#{opts["format"]}:extent=#{opts["target_size"]}")
+          else
+            mog
+          end
+        end)
+        |> then(fn mog ->
+          if opts["dimensions"] do
+            mog
+            |> Mogrify.gravity("Center")
+            |> Mogrify.custom("thumbnail", opts["dimensions"])
+            |> Mogrify.custom("extent", opts["dimensions"])
+          else
+            mog
+          end
+        end)
+        |> Mogrify.save(path: tmp_dest)
 
-    Uploads.update_upload!(dest, %{
-      size: File.stat!(tmp_dest).size,
-      pending: false
-    })
+        Uploads.upload_file!(dest, tmp_dest)
 
-    File.rm!(tmp_src)
-    File.rm!(tmp_dest)
+        Uploads.update_upload!(dest, %{
+          size: File.stat!(tmp_dest).size,
+          pending: false
+        })
 
-    case opts["callback"] do
-      [module, name, args] ->
-        apply(
-          String.to_existing_atom(module),
-          String.to_existing_atom(name),
-          args
-        )
+        File.rm!(tmp_src)
+        File.rm!(tmp_dest)
 
-      [module, name] ->
-        apply(
-          String.to_existing_atom(module),
-          String.to_existing_atom(name),
-          [dest]
-        )
+        case opts["callback"] do
+          [module, name, args] ->
+            apply(
+              String.to_existing_atom(module),
+              String.to_existing_atom(name),
+              args
+            )
 
-      _ ->
-        nil
-    end
+          [module, name] ->
+            apply(
+              String.to_existing_atom(module),
+              String.to_existing_atom(name),
+              [dest]
+            )
 
-    :ok
+          _ ->
+            nil
+        end
+
+        :ok
+      end)
+
+    ret
   end
 end

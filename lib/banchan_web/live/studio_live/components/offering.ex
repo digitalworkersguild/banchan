@@ -101,7 +101,11 @@ defmodule BanchanWeb.StudioLive.Components.Offering do
   def handle_event("archive", _, %{assigns: %{changeset: %{data: data}}} = socket) do
     if data && data.id do
       {:ok, _} =
-        Offerings.archive_offering(%Offering{id: data.id}, socket.assigns.current_user_member?)
+        Offerings.archive_offering(
+          socket.assigns.current_user,
+          %Offering{id: data.id},
+          socket.assigns.current_user_member?
+        )
 
       {:noreply,
        redirect(socket,

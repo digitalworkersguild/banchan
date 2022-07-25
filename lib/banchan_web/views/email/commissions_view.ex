@@ -1,7 +1,9 @@
-defmodule BanchanWeb.PaymentReceiptView do
+defmodule BanchanWeb.Email.CommissionsView do
   use BanchanWeb, :view
 
   alias Banchan.Commissions
+
+  alias BanchanWeb.Components.Markdown
 
   def render("receipt.html", assigns) do
     estimate = Commissions.line_item_estimate(assigns.commission.line_items)
@@ -35,7 +37,7 @@ defmodule BanchanWeb.PaymentReceiptView do
     ~F"""
     <h2>Banchan Art Payment Receipt</h2>
     <h3>{@commission.title}</h3>
-    <p>{@invoice.event.text}</p>
+    <p><Markdown content={@invoice.event.text} /></p>
     <table>
       <tr>
         <th>Item</th>
@@ -88,6 +90,58 @@ defmodule BanchanWeb.PaymentReceiptView do
         </td>
       </tr>
     </table>
+    """
+  end
+
+  def render("receipt.text", assigns) do
+    estimate = Commissions.line_item_estimate(assigns.commission.line_items)
+
+    deposited =
+      if is_nil(assigns.deposited) || Enum.empty?(assigns.deposited) do
+        [Money.new(0, assigns.default_currency)]
+      else
+        assigns.deposited |> Map.values()
+      end
+
+    tipped =
+      if is_nil(assigns.tipped) || Enum.empty?(assigns.tipped) do
+        [Money.new(0, assigns.default_currency)]
+      else
+        assigns.tipped |> Map.values()
+      end
+
+    remaining =
+      if is_nil(assigns.deposited) || Enum.empty?(assigns.deposited) do
+        Map.values(estimate)
+      else
+        assigns.deposited
+        |> Enum.map(fn {currency, amount} ->
+          Money.subtract(Map.get(estimate, currency, Money.new(0, currency)), amount)
+        end)
+      end
+
+    estimate = Map.values(estimate)
+
+    """
+    Banchan Art Payment Receipt
+    ===========================
+
+    Title: #{assigns.commission.title}
+
+    Invoice Details:
+    #{assigns.invoice.event.text}
+
+    Line Items:
+
+    #{assigns.commission.line_items |> Enum.map_join("\n", fn item -> """
+      * #{item.name} - #{Money.to_string(item.amount)}
+        #{item.description}
+      """ end)}
+    Invoice Charged: #{Money.to_string(assigns.invoice.total_charged)}
+    Paid to Date: #{deposited |> Enum.map_join(" + ", &Money.to_string(&1))}
+    Quote: #{estimate |> Enum.map_join(" + ", &Money.to_string(&1))}
+    Balance: #{remaining |> Enum.map_join(" + ", &Money.to_string(&1))}
+    Additional Tips: #{tipped |> Enum.map_join(" + ", &Money.to_string(&1))}
     """
   end
 end

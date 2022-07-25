@@ -1,6 +1,8 @@
 defmodule BanchanWeb.UserSettingsControllerTest do
   use BanchanWeb.ConnCase, async: true
 
+  use Bamboo.Test
+
   alias Banchan.Accounts
   import Banchan.AccountsFixtures
 
@@ -24,10 +26,18 @@ defmodule BanchanWeb.UserSettingsControllerTest do
     setup %{user: user} do
       email = unique_user_email()
 
-      token =
-        extract_user_token(fn url ->
-          Accounts.deliver_update_email_instructions(%{user | email: email}, user.email, url)
-        end)
+      {:ok, %Oban.Job{}} =
+        Accounts.deliver_update_email_instructions(
+          %{user | email: email},
+          user.email,
+          &extractable_user_token/1
+        )
+
+      assert_delivered_email_matches(%{
+        html_body: html_body
+      })
+
+      token = extract_user_token(html_body)
 
       %{token: token, email: email}
     end
